@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { call } from "./api";
+import { twoToneStops } from "./Sparkline";
 import type { DayHistory } from "./types";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -64,17 +65,17 @@ export default function History({ rhr }: { rhr: number | null }) {
     runs[runs.length - 1].push(p);
   });
   const line = (run: typeof points) => run.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.avg).toFixed(1)}`).join(" ");
-  const band = (run: typeof points) =>
-    run.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.max).toFixed(1)}`).join(" ") +
-    " " +
-    [...run].reverse().map((p) => `L${x(p.t).toFixed(1)},${y(p.min).toFixed(1)}`).join(" ") +
-    " Z";
+  const BASE = H - PAD_BOTTOM;
+  const area = (run: typeof points) =>
+    `${line(run)} L${x(run[run.length - 1].t).toFixed(1)},${BASE} L${x(run[0].t).toFixed(1)},${BASE} Z`;
 
   const avg = points.length ? Math.round(points.reduce((a, p) => a + p.avg, 0) / points.length) : null;
   const min = points.length ? Math.min(...points.map((p) => p.min)) : null;
   const max = points.length ? Math.max(...points.map((p) => p.max)) : null;
   const stressTotal = episodes.reduce((a, e) => a + (e.end - e.start), 0);
   const threshold = rhr !== null && rhr + 20 > lo && rhr + 20 < hi ? rhr + 20 : null;
+  const splitY = threshold !== null ? y(threshold) : null;
+  const allHigh = rhr !== null && rhr + 20 <= lo;
 
   return (
     <main className="content history">
@@ -118,10 +119,18 @@ export default function History({ rhr }: { rhr: number | null }) {
           {threshold !== null && (
             <line className="spark-threshold" x1="0" x2={W} y1={y(threshold)} y2={y(threshold)} />
           )}
+          <defs>
+            <linearGradient id="day-line" gradientUnits="userSpaceOnUse" x1="0" x2="0" y1="0" y2={BASE}>
+              {twoToneStops(splitY, BASE, allHigh, () => 1)}
+            </linearGradient>
+            <linearGradient id="day-fill" gradientUnits="userSpaceOnUse" x1="0" x2="0" y1="0" y2={BASE}>
+              {twoToneStops(splitY, BASE, allHigh, (p) => 0.45 * (1 - p) + 0.04)}
+            </linearGradient>
+          </defs>
           {runs.map((run) => (
             <g key={run[0].t}>
-              <path className="band" d={band(run)} />
-              <path className="avg" d={line(run)} />
+              <path d={area(run)} fill="url(#day-fill)" />
+              <path className="avg" d={line(run)} stroke="url(#day-line)" />
             </g>
           ))}
         </svg>
@@ -163,7 +172,12 @@ export default function History({ rhr }: { rhr: number | null }) {
                 <span>
                   {clock(e.start)} · {duration(e.end - e.start)}
                 </span>
-                <span>peak {e.peak} bpm</span>
+                <span className="peak">
+                  <svg viewBox="0 0 26 12" aria-hidden="true">
+                    <polyline points="1,10 6,7 9,9 13,3 16,6 20,2 25,5" />
+                  </svg>
+                  peak {e.peak} bpm
+                </span>
               </li>
             ))}
           </ul>

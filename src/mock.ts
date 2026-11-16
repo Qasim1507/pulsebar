@@ -3,6 +3,9 @@
 // design against.
 import type { DayHistory, Device, Sample, Snapshot, Tick } from "./types";
 
+// In the app the desktop shows through the translucent window; stand in for it here.
+document.documentElement.style.background = "linear-gradient(135deg, #b9c8e6, #e3d9ee)";
+
 const handlers = new Map<string, Set<(payload: unknown) => void>>();
 const emit = (event: string, payload: unknown) => handlers.get(event)?.forEach((h) => h(payload));
 

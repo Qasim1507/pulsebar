@@ -1,20 +1,43 @@
 import type { Sample } from "./types";
 
 const W = 312;
-const H = 76;
+const H = 64;
 const WINDOW_MS = 5 * 60 * 1000;
 /** Samples further apart than this are drawn as separate segments. */
 const GAP_MS = 5000;
 
+export const CALM = "#3b82f6";
+export const HIGH = "#ef4444";
+
 interface Props {
   history: Sample[];
   now: number;
-  color: string;
-  /** Resting HR + 20; drawn as a dashed line when it falls inside the range. */
+  /** Resting HR + 20. The line is red above it and blue below. */
   threshold: number | null;
 }
 
-export default function Sparkline({ history, now, color, threshold }: Props) {
+/**
+ * Gradient stops that switch colour at pixel row `splitY` (red above, blue
+ * below). `opacity` gives the alpha at a 0–1 position down the chart.
+ */
+export function twoToneStops(splitY: number | null, height: number, allHigh: boolean, opacity: (p: number) => number) {
+  if (splitY === null) {
+    const color = allHigh ? HIGH : CALM;
+    return [
+      <stop key="a" offset="0" stopColor={color} stopOpacity={opacity(0)} />,
+      <stop key="b" offset="1" stopColor={color} stopOpacity={opacity(1)} />,
+    ];
+  }
+  const p = Math.min(1, Math.max(0, splitY / height));
+  return [
+    <stop key="a" offset="0" stopColor={HIGH} stopOpacity={opacity(0)} />,
+    <stop key="b" offset={p} stopColor={HIGH} stopOpacity={opacity(p)} />,
+    <stop key="c" offset={p} stopColor={CALM} stopOpacity={opacity(p)} />,
+    <stop key="d" offset="1" stopColor={CALM} stopOpacity={opacity(1)} />,
+  ];
+}
+
+export default function Sparkline({ history, now, threshold }: Props) {
   if (history.length < 2) {
     return (
       <svg className="spark" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Heart rate, last 5 minutes">
@@ -54,22 +77,25 @@ export default function Sparkline({ history, now, color, threshold }: Props) {
   const last = history[history.length - 1];
   area += `L${x(last[0]).toFixed(1)},${H} L${x(history[segmentStart][0]).toFixed(1)},${H} Z`;
 
-  const thresholdY = threshold !== null && threshold > lo && threshold < hi ? y(threshold) : null;
+  const inRange = threshold !== null && threshold > lo && threshold < hi;
+  const splitY = inRange ? y(threshold) : null;
+  const allHigh = threshold !== null && threshold <= lo;
+  const lastHigh = threshold !== null && last[1] > threshold;
 
   return (
     <svg className="spark" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Heart rate, last 5 minutes">
       <defs>
-        <linearGradient id="spark-fill" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0" stopColor={color} stopOpacity="0.32" />
-          <stop offset="1" stopColor={color} stopOpacity="0" />
+        <linearGradient id="spark-line" gradientUnits="userSpaceOnUse" x1="0" x2="0" y1="0" y2={H}>
+          {twoToneStops(splitY, H, allHigh, () => 1)}
+        </linearGradient>
+        <linearGradient id="spark-fill" gradientUnits="userSpaceOnUse" x1="0" x2="0" y1="0" y2={H}>
+          {twoToneStops(splitY, H, allHigh, (p) => 0.42 * (1 - p) + 0.03)}
         </linearGradient>
       </defs>
-      {thresholdY !== null && (
-        <line x1="0" x2={W} y1={thresholdY} y2={thresholdY} className="spark-threshold" />
-      )}
+      {splitY !== null && <line x1="0" x2={W} y1={splitY} y2={splitY} className="spark-threshold" />}
       <path d={area} fill="url(#spark-fill)" />
-      <path d={line} fill="none" stroke={color} strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round" />
-      <circle cx={x(last[0])} cy={y(last[1])} r="3" fill={color} />
+      <path d={line} fill="none" stroke="url(#spark-line)" strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={x(last[0])} cy={y(last[1])} r="3" fill={lastHigh ? HIGH : CALM} />
     </svg>
   );
 }

@@ -90,7 +90,7 @@ export default function Settings({ snap, ble, onSnapshot }: Props) {
     <main className="content settings">
       <section className="card">
         <h2>
-          WHOOP account <small className="optional-tag">optional</small>
+          WHOOP integration
           <span className={`chip chip-${auth.status}`}>
             {{ none: "Not connected", pending: "Waiting for browser…", connected: "Connected", error: "Needs attention" }[auth.status]}
           </span>

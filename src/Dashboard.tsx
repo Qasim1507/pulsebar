@@ -11,18 +11,18 @@ interface Zone {
 
 function zoneFor(bpm: number, maxHr: number): Zone {
   const pct = bpm / maxHr;
-  if (pct >= 0.9) return { label: "Zone 5", name: "Max", color: "#ff4d5e" };
-  if (pct >= 0.8) return { label: "Zone 4", name: "Hard", color: "#ff9a3d" };
-  if (pct >= 0.7) return { label: "Zone 3", name: "Moderate", color: "#3ddc84" };
-  if (pct >= 0.6) return { label: "Zone 2", name: "Light", color: "#4da3ff" };
-  if (pct >= 0.5) return { label: "Zone 1", name: "Very light", color: "#8fb4d9" };
-  return { label: "Rest", name: "Below zone 1", color: "#9aa0aa" };
+  if (pct >= 0.9) return { label: "Zone 5", name: "Max", color: "#dc2626" };
+  if (pct >= 0.8) return { label: "Zone 4", name: "Hard", color: "#d9650a" };
+  if (pct >= 0.7) return { label: "Zone 3", name: "Moderate", color: "#15803d" };
+  if (pct >= 0.6) return { label: "Zone 2", name: "Light", color: "#2563eb" };
+  if (pct >= 0.5) return { label: "Zone 1", name: "Very light", color: "#4b7bb0" };
+  return { label: "Rest", name: "Below zone 1", color: "#5f6570" };
 }
 
 function recoveryColor(pct: number): string {
-  if (pct >= 67) return "#3ddc84";
-  if (pct >= 34) return "#ffd23d";
-  return "#ff4d5e";
+  if (pct >= 67) return "#22c55e";
+  if (pct >= 34) return "#eab308";
+  return "#ef4444";
 }
 
 function ago(ms: number): string {
@@ -64,7 +64,6 @@ export default function Dashboard({ snap, tick, history, onOpenSettings }: Props
   const m = metrics.data;
   const bpm = tick?.bpm ?? null;
   const zone = bpm !== null ? zoneFor(bpm, settings.maxHr) : null;
-  const lineColor = zone?.color ?? "#9aa0aa";
   // Resting HR the backend is using: WHOOP's, else the one set in Settings.
   const rhr = tick ? tick.rhr : (m?.rhr ?? null);
   const threshold = rhr !== null ? rhr + 20 : null;
@@ -87,13 +86,17 @@ export default function Dashboard({ snap, tick, history, onOpenSettings }: Props
   }, []);
 
   const recovery = m?.recoveryPct ?? null;
-  const ringColor = recovery !== null ? recoveryColor(recovery) : "#3a3d45";
+  const ringColor = recovery !== null ? recoveryColor(recovery) : "transparent";
   const R = 34;
   const circumference = 2 * Math.PI * R;
 
   return (
     <main className="content">
-      <section className={`card hero ${stress ? "hero-stress" : ""}`}>
+      <section className="card hero">
+        <div className="hero-status">
+          <span className={`dot ${tick?.source === "demo" ? "demo" : bpm !== null ? "live" : ""}`} />
+          {hrStatus(tick?.source, tick?.ble ?? snap.ble, settings.deviceName)}
+        </div>
         <div className="hero-top">
           <div className="bpm">
             <span className="bpm-value">{bpm ?? "--"}</span>
@@ -108,15 +111,13 @@ export default function Dashboard({ snap, tick, history, onOpenSettings }: Props
             </span>
           </div>
           {zone && (
-            <div className="zone" style={{ color: zone.color, borderColor: `${zone.color}55`, background: `${zone.color}14` }}>
+            <div className="zone" style={{ color: zone.color, background: `${zone.color}1c` }}>
               <strong>{zone.label}</strong>
               <span>{zone.name}</span>
             </div>
           )}
         </div>
-        <div className="hero-status">{hrStatus(tick?.source, tick?.ble ?? snap.ble, settings.deviceName)}</div>
-
-        <Sparkline history={history} now={tick?.t ?? Date.now()} color={lineColor} threshold={threshold} />
+        <Sparkline history={history} now={tick?.t ?? Date.now()} threshold={threshold} />
         <div className="spark-meta">
           <span>5 min</span>
           {stats && (
@@ -136,7 +137,7 @@ export default function Dashboard({ snap, tick, history, onOpenSettings }: Props
             {threshold === null
               ? "Set your resting heart rate in Settings to turn this on"
               : stress
-                ? `Heart rate is above ${Math.round(threshold)} bpm (resting + 20) while seated`
+                ? `Heart rate above ${Math.round(threshold)} bpm while seated`
                 : `Alerts above ${Math.round(threshold)} bpm (resting ${Math.round(rhr!)} + 20)`}
           </span>
         </div>
@@ -151,7 +152,8 @@ export default function Dashboard({ snap, tick, history, onOpenSettings }: Props
           </button>
         </section>
       ) : (
-      <section className="card recovery">
+      <dl className="tiles">
+        <div className="card tile ring-tile">
         <div className="ring">
           <svg viewBox="0 0 84 84">
             <circle cx="42" cy="42" r={R} className="ring-track" />
@@ -169,40 +171,37 @@ export default function Dashboard({ snap, tick, history, onOpenSettings }: Props
             />
           </svg>
           <div className="ring-label">
-            <strong style={{ color: recovery !== null ? ringColor : undefined }}>
+            <strong>
               {fmt(recovery)}
               {recovery !== null && <small>%</small>}
             </strong>
             <span>Recovery</span>
           </div>
         </div>
-        <dl className="stats">
-          <div>
+        </div>
+          <div className="card tile">
             <dt>HRV</dt>
             <dd>
               {fmt(m?.hrvMs)} <small>ms</small>
             </dd>
           </div>
-          <div>
-            <dt>Resting HR</dt>
-            <dd>
-              {fmt(m?.rhr)} <small>bpm</small>
-            </dd>
-          </div>
-          <div>
+          <div className="card tile">
             <dt>Sleep</dt>
             <dd>
               {fmt(m?.sleepPct)} <small>%</small>
             </dd>
           </div>
-          <div>
-            <dt>Day Strain</dt>
+          <div className="card tile">
+            <dt>Resting HR</dt>
             <dd>
-              {fmt(m?.strain, 1)} <small>/ 21</small>
+              {fmt(m?.rhr)} <small>bpm</small>
             </dd>
           </div>
-        </dl>
-      </section>
+          <div className="card tile">
+            <dt>Day Strain</dt>
+            <dd>{fmt(m?.strain, 1)}</dd>
+          </div>
+      </dl>
       )}
 
       <footer className="foot">
