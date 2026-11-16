@@ -1,5 +1,6 @@
 mod ble;
 mod demo;
+mod history;
 mod hr;
 mod settings;
 mod whoop;
@@ -75,6 +76,8 @@ pub struct Shared {
     pub live: Mutex<Live>,
     pub ble: Mutex<ble::BleState>,
     history: Mutex<VecDeque<(i64, u16)>>,
+    /// Persistent day history; `None` if the database could not be opened.
+    db: Option<history::Db>,
     pub ble_kick: Notify,
     pub poll_kick: Notify,
     oauth_busy: AtomicBool,
@@ -270,6 +273,15 @@ async fn set_autostart(app: AppHandle, shared: SharedState<'_>, enabled: bool) -
     Ok(snapshot(&app, &shared))
 }
 
+/// Minute-by-minute heart rate and stress episodes between two timestamps (ms).
+#[tauri::command]
+async fn get_history(shared: SharedState<'_>, from: i64, to: i64) -> Result<history::DayHistory, String> {
+    match &shared.db {
+        Some(db) => db.range(from, to),
+        None => Err("History database is unavailable".into()),
+    }
+}
+
 #[tauri::command]
 async fn refresh_now(shared: SharedState<'_>) -> Result<(), String> {
     shared.poll_kick.notify_one();
@@ -305,6 +317,10 @@ async fn tick_loop(app: AppHandle, shared: Arc<Shared>) {
     let mut last_title = String::new();
     let mut was_stressed = false;
     let mut last_notified: Option<Instant> = None;
+    // Day history: 5-second averages of real strap data, plus stress episodes.
+    let (mut acc_sum, mut acc_n, mut acc_started) = (0u32, 0u32, now_ms());
+    let mut episode: Option<(i64, u16)> = None;
+    let mut last_prune = 0i64;
 
     loop {
         interval.tick().await;
@@ -365,7 +381,8 @@ async fn tick_loop(app: AppHandle, shared: Arc<Shared>) {
 
         // Notify when the alert starts, but only on real data (strap + WHOOP
         // resting HR) and not more often than the cooldown.
-        if stress && !was_stressed && stress_notify && source == "ble" && real_metrics {
+        let real_stress = stress && source == "ble" && real_metrics;
+        if real_stress && !was_stressed && stress_notify {
             let cooled = last_notified.is_none_or(|t| t.elapsed() >= STRESS_NOTIFY_COOLDOWN);
             if let (true, Some(bpm), Some(rhr)) = (cooled, bpm, rhr) {
                 let body = format!(
@@ -376,7 +393,30 @@ async fn tick_loop(app: AppHandle, shared: Arc<Shared>) {
                 }
             }
         }
-        was_stressed = stress;
+        was_stressed = real_stress;
+
+        if let Some(db) = &shared.db {
+            if let (Some(bpm), "ble") = (bpm, source) {
+                acc_sum += bpm as u32;
+                acc_n += 1;
+            }
+            if now - acc_started >= 5_000 {
+                if acc_n > 0 {
+                    db.add_sample(now, (acc_sum as f64 / acc_n as f64).round() as u16);
+                }
+                (acc_sum, acc_n, acc_started) = (0, 0, now);
+            }
+            if real_stress {
+                let current = episode.get_or_insert((now, 0));
+                current.1 = current.1.max(bpm.unwrap_or(0));
+            } else if let Some((start, peak)) = episode.take() {
+                db.add_episode(start, now, peak);
+            }
+            if now - last_prune >= 3_600_000 {
+                db.prune(now);
+                last_prune = now;
+            }
+        }
 
         let hr_part = bpm.map_or("-- bpm".to_string(), |b| format!("{b} bpm"));
         let title = match recovery {
@@ -467,6 +507,7 @@ pub fn run() {
             scan_devices,
             select_device,
             refresh_now,
+            get_history,
             set_autostart,
             set_stress_notify,
             quit
@@ -493,6 +534,7 @@ pub fn run() {
                 live: Mutex::new(Live::default()),
                 ble: Mutex::new(ble::BleState::idle()),
                 history: Mutex::new(VecDeque::with_capacity(HISTORY_SECS + 8)),
+                db: history::Db::open(&app.path().app_data_dir()?.join("history.db")).ok(),
                 ble_kick: Notify::new(),
                 poll_kick: Notify::new(),
                 oauth_busy: AtomicBool::new(false),

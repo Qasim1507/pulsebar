@@ -27,6 +27,7 @@ keyring = { version = "3", features = ["apple-native", "windows-native"] }
 sha2 = "0.10"
 base64 = "0.22"
 getrandom = "0.2"
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [profile.release]
 opt-level = "s"

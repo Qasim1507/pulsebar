@@ -82,7 +82,7 @@ body,
   color: var(--muted);
   font: inherit;
   font-weight: 500;
-  padding: 4px 11px;
+  padding: 4px 9px;
   border-radius: 7px;
 }
 
@@ -650,4 +650,129 @@ body,
 .pick-cta {
   color: var(--accent);
   font-weight: 600;
+}
+
+/* ---- history ---- */
+
+.days {
+  display: flex;
+  gap: 4px;
+}
+
+.days button {
+  appearance: none;
+  flex: 1;
+  padding: 5px 0;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11.5px;
+  line-height: 1.25;
+}
+
+.days button strong {
+  display: block;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.days button.active {
+  background: #2a2d36;
+  border-color: #3a3e49;
+  color: var(--text);
+}
+
+.day-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.day-chart .grid {
+  stroke: #23262e;
+  stroke-width: 1;
+}
+
+.day-chart text {
+  fill: var(--dim);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.day-chart .band {
+  fill: #4da3ff;
+  fill-opacity: 0.16;
+}
+
+.day-chart .avg {
+  fill: none;
+  stroke: #4da3ff;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+.day-chart .episode {
+  fill: var(--accent);
+  fill-opacity: 0.16;
+}
+
+.day-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin: 12px 0 0;
+}
+
+.day-stats dt {
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.day-stats dd {
+  margin: 1px 0 0;
+  font-size: 17px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.history h2 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.episodes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.episodes li {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-top: 1px solid var(--card-border);
+  font-variant-numeric: tabular-nums;
+}
+
+.episodes li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.episodes li span:last-child {
+  color: var(--muted);
+}
+
+.empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
 }

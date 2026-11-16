@@ -1,7 +1,7 @@
 // Browser-only stand-in for the Rust backend (see api.ts). The real demo
 // mode lives in src-tauri/src/demo.rs; this mirrors it closely enough to
 // design against.
-import type { Device, Sample, Snapshot, Tick } from "./types";
+import type { DayHistory, Device, Sample, Snapshot, Tick } from "./types";
 
 const handlers = new Map<string, Set<(payload: unknown) => void>>();
 const emit = (event: string, payload: unknown) => handlers.get(event)?.forEach((h) => h(payload));
@@ -92,6 +92,19 @@ export async function mockCall<T>(command: string, args: Record<string, unknown>
       ] satisfies Device[] as T;
     case "start_oauth":
       throw "WHOOP sign-in only works inside the desktop app";
+    case "get_history": {
+      // A plausible desk day: 9:00 until now (or 18:00 on past days).
+      const from = Number(args.from);
+      const end = Math.min(Number(args.to), Date.now(), from + 18 * 3600_000);
+      const day: DayHistory = { points: [], episodes: [] };
+      for (let t = from + 9 * 3600_000, i = 0; t < end; t += 60_000, i++) {
+        const bump = i % 140 > 120 ? 20 : 0;
+        const avg = 64 + 6 * Math.sin(i / 23) + 3 * Math.sin(i / 5) + bump;
+        day.points.push({ t, avg, min: Math.round(avg - 3), max: Math.round(avg + 4) });
+        if (i % 140 === 121) day.episodes.unshift({ start: t, end: t + 19 * 60_000, peak: Math.round(avg + 9) });
+      }
+      return day as T;
+    }
     case "set_stress_notify":
       state.settings.stressNotify = Boolean(args.enabled);
       return snapshot() as T;

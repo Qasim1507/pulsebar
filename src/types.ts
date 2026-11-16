@@ -56,6 +56,24 @@ export interface Snapshot {
   autostart: boolean;
 }
 
+export interface HistoryPoint {
+  t: number;
+  avg: number;
+  min: number;
+  max: number;
+}
+
+export interface Episode {
+  start: number;
+  end: number;
+  peak: number;
+}
+
+export interface DayHistory {
+  points: HistoryPoint[];
+  episodes: Episode[];
+}
+
 export interface Device {
   id: string;
   name: string;

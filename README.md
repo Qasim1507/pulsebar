@@ -4,7 +4,27 @@ A menu-bar (macOS) / system-tray (Windows) widget that shows live heart rate
 from a WHOOP strap over Bluetooth, plus today's recovery, HRV, resting HR,
 sleep and strain from the WHOOP API. Built with Tauri 2 (Rust) and React.
 
-## Run
+## Install
+
+Download the latest build from the
+[Releases page](https://github.com/Qasim1507/pulsebar/releases/latest):
+
+- **macOS** (Apple Silicon and Intel): open the `.dmg` and drag PulseBar to
+  Applications.
+- **Windows**: run the `-setup.exe` installer.
+
+The builds are not code-signed, so the operating system warns on first launch:
+
+- **macOS**: if it says the app "is damaged" or "cannot be opened", run
+  `xattr -cr /Applications/PulseBar.app` in Terminal once, then open it again.
+  (Or try to open it, then go to System Settings → Privacy & Security →
+  **Open Anyway**.)
+- **Windows**: on the SmartScreen dialog click **More info → Run anyway**.
+
+You need your own free WHOOP developer keys for recovery data (see below);
+live heart rate needs only the strap.
+
+## Run from source
 
 Requires Node 20+ and a Rust toolchain (`cargo` on your `PATH`).
 
@@ -50,6 +70,7 @@ Credential Manager, never on disk in plain text. Other settings live in
 | `src-tauri/src/hr.rs` | Heart Rate Measurement parser (UINT8/16 BPM, R-R) + tests |
 | `src-tauri/src/whoop.rs` | OAuth (auth code + PKCE, loopback listener), refresh, 15-min poll |
 | `src-tauri/src/lib.rs` | Tray icon/title, popover window, 1 Hz ticker, commands |
+| `src-tauri/src/history.rs` | SQLite day history (5-second averages, stress episodes, 7-day retention) |
 | `src-tauri/src/demo.rs` | Simulated heart rate and metrics |
 | `src-tauri/src/settings.rs` | Settings file and credential-store access |
 | `src/` | React popover: `Dashboard`, `Settings`, `Sparkline` |
@@ -63,5 +84,11 @@ Notes:
   Settings, along with **Start at login**.
 - Every push to `main` builds Windows (`.exe` installer) and macOS artifacts via
   GitHub Actions (`.github/workflows/build.yml`).
+- The History tab shows the last 7 days from `history.db` in the app data
+  directory (`~/Library/Application Support/com.pulsebar.widget/` or
+  `%APPDATA%\com.pulsebar.widget\`). Only real strap data is recorded; older
+  rows are deleted automatically and nothing is uploaded.
+- Pushing a tag such as `v0.1.0` publishes the DMG and Windows installer on a
+  GitHub Release.
 - Windows has no tray text, so `68 bpm • 84%` appears in the tray tooltip there.
 - HR zones are percentages of the max heart rate set in Settings (default 190).

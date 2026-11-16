@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { call, on } from "./api";
 import Dashboard from "./Dashboard";
+import History from "./History";
 import Settings from "./Settings";
 import type { AuthState, MetricsState, Sample, Snapshot, Tick } from "./types";
 
 const WINDOW_MS = 5 * 60 * 1000;
 
 export default function App() {
-  const [tab, setTab] = useState<"today" | "settings">("today");
+  const [tab, setTab] = useState<"today" | "history" | "settings">("today");
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [history, setHistory] = useState<Sample[]>([]);
   const [tick, setTick] = useState<Tick | null>(null);
@@ -55,6 +56,9 @@ export default function App() {
           <button className={tab === "today" ? "active" : ""} onClick={() => setTab("today")}>
             Today
           </button>
+          <button className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}>
+            History
+          </button>
           <button className={tab === "settings" ? "active" : ""} onClick={() => setTab("settings")}>
             Settings
           </button>
@@ -63,6 +67,8 @@ export default function App() {
 
       {tab === "today" ? (
         <Dashboard snap={snap} tick={tick} history={history} onOpenSettings={() => setTab("settings")} />
+      ) : tab === "history" ? (
+        <History rhr={snap.metrics.data?.rhr ?? null} />
       ) : (
         <Settings
           snap={snap}
