@@ -1,7 +1,8 @@
-//! Live heart rate over the standard BLE Heart Rate Service.
+//! Live heart rate over the standard BLE Heart Rate Service, which nearly
+//! every chest strap and armband implements (Polar, Garmin, Wahoo, Coros…).
 //!
-//! A WHOOP strap only advertises this service while "HR Broadcast" is turned
-//! on in the WHOOP mobile app.
+//! Some wearables only advertise it on request: a WHOOP needs "HR Broadcast"
+//! turned on in its mobile app, and Garmin watches need broadcast mode.
 
 use crate::{hr, Shared};
 use btleplug::api::{bleuuid::uuid_from_u16, Central, Manager as _, Peripheral as _, ScanFilter};
@@ -86,6 +87,8 @@ pub async fn scan(duration: Duration) -> Result<Vec<Device>, String> {
     for p in adapter.peripherals().await.map_err(|e| e.to_string())? {
         let Ok(Some(props)) = p.properties().await else { continue };
         let name = props.local_name.unwrap_or_default();
+        // Some straps leave the service list out of the advertisement the OS
+        // hands us, so a recognisable name also counts.
         let is_hr = props.services.contains(&HR_SERVICE);
         if !is_hr && !name.to_uppercase().contains("WHOOP") {
             continue;
@@ -96,10 +99,8 @@ pub async fn scan(duration: Duration) -> Result<Vec<Device>, String> {
             rssi: props.rssi,
         });
     }
-    // WHOOP straps first, then strongest signal.
-    devices.sort_by_key(|d| {
-        (!d.name.to_uppercase().contains("WHOOP"), -(d.rssi.unwrap_or(-127) as i32))
-    });
+    // Strongest signal (usually the one you're wearing) first.
+    devices.sort_by_key(|d| -(d.rssi.unwrap_or(-127) as i32));
     Ok(devices)
 }
 

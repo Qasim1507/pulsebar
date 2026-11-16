@@ -1,0 +1,12 @@
+name = "pulsebar-whoop-broker"
+main = "src/index.js"
+compatibility_date = "2026-01-01"
+
+# Turn off request logging: tokens pass through this Worker.
+[observability]
+enabled = false
+
+[vars]
+# Public value from your WHOOP developer app. The secret is NOT set here:
+# run `npx wrangler secret put WHOOP_CLIENT_SECRET` instead.
+WHOOP_CLIENT_ID = "e002d840-76b7-492c-ba89-4108b1532548"

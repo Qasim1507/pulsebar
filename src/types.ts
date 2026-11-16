@@ -8,8 +8,10 @@ export interface SettingsView {
   deviceId: string | null;
   deviceName: string | null;
   maxHr: number;
+  restingHr: number | null;
   demoMode: boolean;
   stressNotify: boolean;
+  sharedApp: boolean;
   redirectUri: string;
 }
 
@@ -45,6 +47,7 @@ export interface Tick {
   source: "ble" | "demo" | "none";
   ble: BleState;
   stress: boolean;
+  rhr: number | null;
 }
 
 export interface Snapshot {

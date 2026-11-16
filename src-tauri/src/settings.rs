@@ -16,6 +16,8 @@ pub struct Settings {
     pub device_id: Option<String>,
     pub device_name: Option<String>,
     pub max_hr: u16,
+    /// Entered by hand; used for the stress alert when WHOOP isn't connected.
+    pub resting_hr: Option<u16>,
     pub demo_mode: bool,
     pub stress_notify: bool,
 }
@@ -27,6 +29,7 @@ impl Default for Settings {
             device_id: None,
             device_name: None,
             max_hr: 190,
+            resting_hr: None,
             demo_mode: true,
             stress_notify: true,
         }

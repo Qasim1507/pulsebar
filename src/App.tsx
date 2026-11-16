@@ -68,7 +68,7 @@ export default function App() {
       {tab === "today" ? (
         <Dashboard snap={snap} tick={tick} history={history} onOpenSettings={() => setTab("settings")} />
       ) : tab === "history" ? (
-        <History rhr={snap.metrics.data?.rhr ?? null} />
+        <History rhr={tick?.rhr ?? null} />
       ) : (
         <Settings
           snap={snap}

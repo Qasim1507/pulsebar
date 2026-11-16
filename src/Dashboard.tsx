@@ -65,7 +65,9 @@ export default function Dashboard({ snap, tick, history, onOpenSettings }: Props
   const bpm = tick?.bpm ?? null;
   const zone = bpm !== null ? zoneFor(bpm, settings.maxHr) : null;
   const lineColor = zone?.color ?? "#9aa0aa";
-  const threshold = m?.rhr != null ? m.rhr + 20 : null;
+  // Resting HR the backend is using: WHOOP's, else the one set in Settings.
+  const rhr = tick ? tick.rhr : (m?.rhr ?? null);
+  const threshold = rhr !== null ? rhr + 20 : null;
   const stress = tick?.stress ?? false;
 
   const values = history.map(([, b]) => b);
@@ -127,19 +129,28 @@ export default function Dashboard({ snap, tick, history, onOpenSettings }: Props
       </section>
 
       <section className={`alert ${stress ? "alert-on" : ""}`} role="status">
-        <span className="alert-icon">{stress ? "!" : "✓"}</span>
+        <span className="alert-icon">{stress ? "!" : threshold === null ? "–" : "✓"}</span>
         <div>
-          <strong>{stress ? "Desk Stress Alert" : "Desk stress: calm"}</strong>
+          <strong>{stress ? "Desk Stress Alert" : threshold === null ? "Desk stress alert is off" : "Desk stress: calm"}</strong>
           <span>
             {threshold === null
-              ? "Needs your resting heart rate from WHOOP"
+              ? "Set your resting heart rate in Settings to turn this on"
               : stress
                 ? `Heart rate is above ${Math.round(threshold)} bpm (resting + 20) while seated`
-                : `Alerts above ${Math.round(threshold)} bpm (resting ${Math.round(m!.rhr!)} + 20)`}
+                : `Alerts above ${Math.round(threshold)} bpm (resting ${Math.round(rhr!)} + 20)`}
           </span>
         </div>
       </section>
 
+      {metrics.source === "none" && auth.status !== "connected" ? (
+        <section className="card optional">
+          <strong>Recovery, HRV, sleep and strain</strong>
+          <span>Optional. Wear a WHOOP? Connect your account to see today's numbers here.</span>
+          <button className="btn" onClick={onOpenSettings}>
+            Connect WHOOP
+          </button>
+        </section>
+      ) : (
       <section className="card recovery">
         <div className="ring">
           <svg viewBox="0 0 84 84">
@@ -192,6 +203,7 @@ export default function Dashboard({ snap, tick, history, onOpenSettings }: Props
           </div>
         </dl>
       </section>
+      )}
 
       <footer className="foot">
         {metrics.source === "whoop" && metrics.updatedAt ? (
@@ -213,7 +225,7 @@ export default function Dashboard({ snap, tick, history, onOpenSettings }: Props
         ) : (
           <>
             <span className={metrics.error || auth.status === "error" ? "warn" : ""}>
-              {metrics.error ?? auth.detail ?? "WHOOP not connected"}
+              {metrics.error ?? auth.detail ?? "Works with any Bluetooth heart rate strap"}
             </span>
             <button className="link" onClick={onOpenSettings}>
               Settings

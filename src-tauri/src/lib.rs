@@ -97,8 +97,11 @@ struct SettingsView {
     device_id: Option<String>,
     device_name: Option<String>,
     max_hr: u16,
+    resting_hr: Option<u16>,
     demo_mode: bool,
     stress_notify: bool,
+    /// True when the build has a shared WHOOP app, so no keys are needed.
+    shared_app: bool,
     redirect_uri: &'static str,
 }
 
@@ -122,8 +125,10 @@ fn snapshot(app: &AppHandle, shared: &Shared) -> Snapshot {
             device_id: s.device_id,
             device_name: s.device_name,
             max_hr: s.max_hr,
+            resting_hr: s.resting_hr,
             demo_mode: s.demo_mode,
             stress_notify: s.stress_notify,
+            shared_app: whoop::shared_app_available(),
             redirect_uri: whoop::REDIRECT_URI,
         },
         auth: shared.auth.lock().unwrap().clone(),
@@ -158,6 +163,7 @@ async fn save_settings(
     client_id: String,
     client_secret: Option<String>,
     max_hr: u16,
+    resting_hr: Option<u16>,
     demo_mode: bool,
 ) -> Result<Snapshot, String> {
     let client_id = client_id.trim().to_string();
@@ -168,6 +174,7 @@ async fn save_settings(
         let changed = s.client_id != client_id || secret.is_some();
         s.client_id = client_id;
         s.max_hr = max_hr.clamp(120, 230);
+        s.resting_hr = resting_hr.filter(|v| *v > 0).map(|v| v.clamp(30, 120));
         s.demo_mode = demo_mode;
         changed
     };
@@ -187,9 +194,7 @@ async fn save_settings(
 
 #[tauri::command]
 async fn start_oauth(app: AppHandle, shared: SharedState<'_>) -> Result<(), String> {
-    let client_id = shared.settings.lock().unwrap().client_id.clone();
-    let secret = shared.client_secret.lock().unwrap().clone();
-    let (false, Some(secret)) = (client_id.is_empty(), secret) else {
+    let Some(client) = whoop::Client::current(&shared) else {
         return Err("Enter and save your WHOOP Client ID and Secret first".into());
     };
     if shared.oauth_busy.swap(true, Ordering::SeqCst) {
@@ -198,7 +203,7 @@ async fn start_oauth(app: AppHandle, shared: SharedState<'_>) -> Result<(), Stri
 
     whoop::set_auth(&app, &shared, "pending", None);
     let result = async {
-        let tokens = whoop::authorize(&app, &client_id, &secret).await?;
+        let tokens = whoop::authorize(&app, &client).await?;
         whoop::store_tokens(&shared, &tokens).await
     }
     .await;
@@ -305,6 +310,8 @@ struct Tick {
     source: &'static str,
     ble: ble::BleState,
     stress: bool,
+    /// Resting HR the stress alert is using: WHOOP's, else the manual one.
+    rhr: Option<f64>,
 }
 
 /// Once a second: pick the current heart rate, record it, update the tray
@@ -334,9 +341,9 @@ async fn tick_loop(app: AppHandle, shared: Arc<Shared>) {
         }
         last_wall = now;
 
-        let (has_device, demo_mode, stress_notify) = {
+        let (has_device, demo_mode, stress_notify, manual_rhr) = {
             let s = shared.settings.lock().unwrap();
-            (s.device_id.is_some(), s.demo_mode, s.stress_notify)
+            (s.device_id.is_some(), s.demo_mode, s.stress_notify, s.resting_hr)
         };
         let (bpm, rr_ms, source) = if has_device {
             match shared.live.lock().unwrap().fresh() {
@@ -353,6 +360,13 @@ async fn tick_loop(app: AppHandle, shared: Arc<Shared>) {
             let m = shared.metrics.lock().unwrap();
             let data = m.data.as_ref();
             (data.and_then(|d| d.recovery_pct), data.and_then(|d| d.rhr), m.source == "whoop")
+        };
+        // Resting HR: WHOOP's when connected, otherwise the one typed into
+        // Settings, otherwise the demo value (never used for real alerts).
+        let (rhr, real_rhr) = match (rhr, manual_rhr) {
+            (Some(whoop), _) if real_metrics => (Some(whoop), true),
+            (_, Some(manual)) => (Some(manual as f64), true),
+            (other, None) => (other, false),
         };
 
         let stress = {
@@ -379,9 +393,9 @@ async fn tick_loop(app: AppHandle, shared: Arc<Shared>) {
             }
         };
 
-        // Notify when the alert starts, but only on real data (strap + WHOOP
-        // resting HR) and not more often than the cooldown.
-        let real_stress = stress && source == "ble" && real_metrics;
+        // Notify when the alert starts, but only on real data (a strap and a
+        // real resting HR) and not more often than the cooldown.
+        let real_stress = stress && source == "ble" && real_rhr;
         if real_stress && !was_stressed && stress_notify {
             let cooled = last_notified.is_none_or(|t| t.elapsed() >= STRESS_NOTIFY_COOLDOWN);
             if let (true, Some(bpm), Some(rhr)) = (cooled, bpm, rhr) {
@@ -435,7 +449,7 @@ async fn tick_loop(app: AppHandle, shared: Arc<Shared>) {
 
         let _ = app.emit(
             "tick",
-            Tick { t: now, bpm, rr_ms, source, ble: shared.ble.lock().unwrap().clone(), stress },
+            Tick { t: now, bpm, rr_ms, source, ble: shared.ble.lock().unwrap().clone(), stress, rhr },
         );
     }
 }
@@ -581,12 +595,14 @@ pub fn run() {
 
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                // Only touch the credential store once WHOOP keys exist, so
-                // demo mode never triggers a keychain prompt.
-                let has_client = !shared.settings.lock().unwrap().client_id.is_empty();
-                if has_client {
-                    let secret = settings::secret_get(settings::KEY_CLIENT_SECRET).await;
-                    *shared.client_secret.lock().unwrap() = secret;
+                // Only touch the credential store when a WHOOP sign-in is
+                // possible, so plain demo mode never triggers a keychain prompt.
+                let has_own_keys = !shared.settings.lock().unwrap().client_id.is_empty();
+                if has_own_keys || whoop::shared_app_available() {
+                    if has_own_keys {
+                        let secret = settings::secret_get(settings::KEY_CLIENT_SECRET).await;
+                        *shared.client_secret.lock().unwrap() = secret;
+                    }
                     let tokens = settings::secret_get(settings::KEY_TOKENS)
                         .await
                         .and_then(|json| serde_json::from_str::<whoop::Tokens>(&json).ok());

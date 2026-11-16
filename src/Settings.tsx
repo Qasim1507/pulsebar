@@ -21,6 +21,7 @@ export default function Settings({ snap, ble, onSnapshot }: Props) {
   const [clientId, setClientId] = useState(settings.clientId);
   const [clientSecret, setClientSecret] = useState("");
   const [maxHr, setMaxHr] = useState(String(settings.maxHr));
+  const [restingHr, setRestingHr] = useState(settings.restingHr ? String(settings.restingHr) : "");
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [devices, setDevices] = useState<Device[] | null>(null);
@@ -35,11 +36,13 @@ export default function Settings({ snap, ble, onSnapshot }: Props) {
         clientId,
         clientSecret: clientSecret || null,
         maxHr: Number(maxHr) || settings.maxHr,
+        restingHr: Number(restingHr) || null,
         demoMode: overrides.demoMode ?? settings.demoMode,
       });
       onSnapshot(next);
       setClientSecret("");
       setMaxHr(String(next.settings.maxHr));
+      setRestingHr(next.settings.restingHr ? String(next.settings.restingHr) : "");
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
       return next;
@@ -77,7 +80,9 @@ export default function Settings({ snap, ble, onSnapshot }: Props) {
     setDevices(null);
   }
 
-  const canConnect = clientId.trim() !== "" && (settings.hasSecret || clientSecret.trim() !== "");
+  // With a shared WHOOP app built in, keys are only for people who prefer their own.
+  const usingOwnKeys = clientId.trim() !== "";
+  const canConnect = usingOwnKeys ? settings.hasSecret || clientSecret.trim() !== "" : settings.sharedApp;
   const dirty =
     clientId !== settings.clientId || clientSecret !== "" || Number(maxHr) !== settings.maxHr;
 
@@ -85,39 +90,82 @@ export default function Settings({ snap, ble, onSnapshot }: Props) {
     <main className="content settings">
       <section className="card">
         <h2>
-          WHOOP account
+          WHOOP account <small className="optional-tag">optional</small>
           <span className={`chip chip-${auth.status}`}>
             {{ none: "Not connected", pending: "Waiting for browser…", connected: "Connected", error: "Needs attention" }[auth.status]}
           </span>
         </h2>
 
-        <label>
-          Client ID
-          <input
-            value={clientId}
-            onChange={(e) => setClientId(e.target.value)}
-            placeholder="From developer-dashboard.whoop.com"
-            spellCheck={false}
-            autoComplete="off"
-          />
-        </label>
-        <label>
-          Client Secret
-          <input
-            type="password"
-            value={clientSecret}
-            onChange={(e) => setClientSecret(e.target.value)}
-            placeholder={settings.hasSecret ? "Saved — type to replace" : "Stored in your system keychain"}
-            spellCheck={false}
-            autoComplete="off"
-          />
-        </label>
-        <p className="hint">
-          Add this Redirect URL to your WHOOP app:
-          <code onClick={() => navigator.clipboard?.writeText(settings.redirectUri)} title="Click to copy">
-            {settings.redirectUri}
-          </code>
-        </p>
+        {settings.sharedApp ? (
+          <>
+            <p className="hint">
+              Sign in with your WHOOP account to show today's recovery, HRV, sleep and strain. Your browser opens once;
+              after that it stays connected.
+            </p>
+            <details className="advanced" open={usingOwnKeys}>
+              <summary>Use my own WHOOP developer keys</summary>
+          <label>
+            Client ID
+            <input
+              value={clientId}
+              onChange={(e) => setClientId(e.target.value)}
+              placeholder="From developer-dashboard.whoop.com"
+              spellCheck={false}
+              autoComplete="off"
+            />
+          </label>
+          <label>
+            Client Secret
+            <input
+              type="password"
+              value={clientSecret}
+              onChange={(e) => setClientSecret(e.target.value)}
+              placeholder={settings.hasSecret ? "Saved — type to replace" : "Stored in your system keychain"}
+              spellCheck={false}
+              autoComplete="off"
+            />
+          </label>
+          <p className="hint">
+            Add this Redirect URL to your WHOOP app:
+            <code onClick={() => navigator.clipboard?.writeText(settings.redirectUri)} title="Click to copy">
+              {settings.redirectUri}
+            </code>
+          </p>
+
+            </details>
+          </>
+        ) : (
+          <>
+          <label>
+            Client ID
+            <input
+              value={clientId}
+              onChange={(e) => setClientId(e.target.value)}
+              placeholder="From developer-dashboard.whoop.com"
+              spellCheck={false}
+              autoComplete="off"
+            />
+          </label>
+          <label>
+            Client Secret
+            <input
+              type="password"
+              value={clientSecret}
+              onChange={(e) => setClientSecret(e.target.value)}
+              placeholder={settings.hasSecret ? "Saved — type to replace" : "Stored in your system keychain"}
+              spellCheck={false}
+              autoComplete="off"
+            />
+          </label>
+          <p className="hint">
+            Add this Redirect URL to your WHOOP app:
+            <code onClick={() => navigator.clipboard?.writeText(settings.redirectUri)} title="Click to copy">
+              {settings.redirectUri}
+            </code>
+          </p>
+
+          </>
+        )}
 
         {(error || (auth.status === "error" && auth.detail)) && <p className="error">{error ?? auth.detail}</p>}
 
@@ -158,7 +206,9 @@ export default function Settings({ snap, ble, onSnapshot }: Props) {
           </div>
         ) : (
           <p className="hint">
-            Turn on <em>HR Broadcast</em> in the WHOOP app's device settings, then scan.
+            Works with any Bluetooth heart rate strap or armband — Polar, Garmin, Wahoo, Coros, WHOOP and others.
+            Put it on, then scan. On a WHOOP, turn on <em>HR Broadcast</em> in the app's device settings first; on a
+            Garmin watch, start <em>Broadcast Heart Rate</em>.
           </p>
         )}
 
@@ -194,6 +244,25 @@ export default function Settings({ snap, ble, onSnapshot }: Props) {
             value={maxHr}
             onChange={(e) => setMaxHr(e.target.value)}
             onBlur={() => Number(maxHr) !== settings.maxHr && save()}
+          />
+        </label>
+        <label className="inline">
+          <span>
+            Resting heart rate
+            <small>
+              {auth.status === "connected"
+                ? "WHOOP's value is used while connected"
+                : "For the stress alert: your pulse sitting calmly"}
+            </small>
+          </span>
+          <input
+            type="number"
+            min={30}
+            max={120}
+            placeholder="e.g. 60"
+            value={restingHr}
+            onChange={(e) => setRestingHr(e.target.value)}
+            onBlur={() => (Number(restingHr) || null) !== settings.restingHr && save()}
           />
         </label>
         <label className="inline">

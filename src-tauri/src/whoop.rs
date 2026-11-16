@@ -25,6 +25,61 @@ pub const REDIRECT_PORT: u16 = 8765;
 /// Must be registered as a Redirect URL on the WHOOP developer app.
 pub const REDIRECT_URI: &str = "http://localhost:8765/callback";
 
+/// The shared WHOOP app that lets people sign in without creating their own
+/// developer keys. Fill in both values after deploying `broker/` (see
+/// broker/README.md). While either is empty, the app asks for the user's own
+/// Client ID and Secret instead. Neither value is secret.
+const SHARED_CLIENT_ID: &str = "e002d840-76b7-492c-ba89-4108b1532548";
+/// Base URL of the deployed token broker, e.g. "https://pulsebar-whoop-broker.example.workers.dev".
+const BROKER_URL: &str = "https://pulsebar-whoop-broker.pulsebar1.workers.dev";
+
+pub fn shared_app_available() -> bool {
+    !SHARED_CLIENT_ID.is_empty() && !BROKER_URL.is_empty()
+}
+
+/// Which WHOOP developer app a sign-in or refresh goes through.
+pub enum Client {
+    /// The user's own keys, talking to WHOOP directly.
+    Own { id: String, secret: String },
+    /// The built-in app; the broker adds the secret server-side.
+    Shared,
+}
+
+impl Client {
+    /// The user's own keys win if they entered any; otherwise the shared app.
+    pub fn current(shared: &Shared) -> Option<Self> {
+        let id = shared.settings.lock().unwrap().client_id.clone();
+        if !id.is_empty() {
+            let secret = shared.client_secret.lock().unwrap().clone()?;
+            return Some(Self::Own { id, secret });
+        }
+        shared_app_available().then_some(Self::Shared)
+    }
+
+    fn id(&self) -> &str {
+        match self {
+            Self::Own { id, .. } => id,
+            Self::Shared => SHARED_CLIENT_ID,
+        }
+    }
+
+    fn token_url(&self) -> String {
+        match self {
+            Self::Own { .. } => TOKEN_URL.to_string(),
+            Self::Shared => format!("{}/oauth/token", BROKER_URL.trim_end_matches('/')),
+        }
+    }
+
+    /// Token request fields, with credentials added only for the user's own app.
+    fn form<'a>(&'a self, mut fields: Vec<(&'a str, &'a str)>) -> Vec<(&'a str, &'a str)> {
+        if let Self::Own { id, secret } = self {
+            fields.push(("client_id", id));
+            fields.push(("client_secret", secret));
+        }
+        fields
+    }
+}
+
 const POLL_INTERVAL: Duration = Duration::from_secs(15 * 60);
 const OAUTH_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
@@ -91,7 +146,7 @@ fn random_urlsafe(bytes: usize) -> Result<String, String> {
 
 /// Open the browser on WHOOP's consent page, wait for the redirect on the
 /// loopback listener, and exchange the code for tokens.
-pub async fn authorize(app: &AppHandle, client_id: &str, client_secret: &str) -> Result<Tokens, String> {
+pub async fn authorize(app: &AppHandle, client: &Client) -> Result<Tokens, String> {
     // Browsers may resolve "localhost" to either stack, so listen on both.
     let v4 = TcpListener::bind(("127.0.0.1", REDIRECT_PORT)).await.map_err(|e| {
         format!("Could not listen on port {REDIRECT_PORT} for the OAuth callback: {e}")
@@ -105,7 +160,7 @@ pub async fn authorize(app: &AppHandle, client_id: &str, client_secret: &str) ->
     let mut url = Url::parse(AUTH_URL).map_err(|e| e.to_string())?;
     url.query_pairs_mut()
         .append_pair("response_type", "code")
-        .append_pair("client_id", client_id)
+        .append_pair("client_id", client.id())
         .append_pair("redirect_uri", REDIRECT_URI)
         .append_pair("scope", SCOPES)
         .append_pair("state", &state)
@@ -121,20 +176,19 @@ pub async fn authorize(app: &AppHandle, client_id: &str, client_secret: &str) ->
         .map_err(|_| "Timed out waiting for WHOOP sign-in".to_string())??;
 
     let http = reqwest::Client::new();
-    request_tokens(
-        &http,
-        &[
-            ("grant_type", "authorization_code"),
-            ("code", &code),
-            ("redirect_uri", REDIRECT_URI),
-            ("client_id", client_id),
-            ("client_secret", client_secret),
-            ("code_verifier", &verifier),
-        ],
-    )
+    let form = client.form(vec![
+        ("grant_type", "authorization_code"),
+        ("code", &code),
+        ("redirect_uri", REDIRECT_URI),
+        ("code_verifier", &verifier),
+    ]);
+    request_tokens(&http, &client.token_url(), &form)
     .await
     .map_err(|e| match e {
-        ApiError::Unauthorized => "WHOOP rejected the Client ID or Secret".to_string(),
+        ApiError::Unauthorized => match client {
+            Client::Own { .. } => "WHOOP rejected the Client ID or Secret".to_string(),
+            Client::Shared => "WHOOP rejected the sign-in — please try again".to_string(),
+        },
         ApiError::Other(e) => e,
     })
 }
@@ -225,9 +279,10 @@ struct TokenResponse {
     expires_in: Option<i64>,
 }
 
-async fn request_tokens(http: &reqwest::Client, form: &[(&str, &str)]) -> Result<Tokens, ApiError> {
+async fn request_tokens(http: &reqwest::Client, url: &str, form: &[(&str, &str)]) -> Result<Tokens, ApiError> {
     let res = http
-        .post(TOKEN_URL)
+        .post(url)
+        .timeout(Duration::from_secs(30))
         .form(form)
         .send()
         .await
@@ -254,20 +309,13 @@ async fn request_tokens(http: &reqwest::Client, form: &[(&str, &str)]) -> Result
 
 async fn refresh(shared: &Shared, tokens: &Tokens) -> Result<Tokens, ApiError> {
     let refresh_token = tokens.refresh_token.as_deref().ok_or(ApiError::Unauthorized)?;
-    let client_id = shared.settings.lock().unwrap().client_id.clone();
-    let secret = shared.client_secret.lock().unwrap().clone().ok_or(ApiError::Unauthorized)?;
-
-    let mut fresh = request_tokens(
-        &shared.http,
-        &[
-            ("grant_type", "refresh_token"),
-            ("refresh_token", refresh_token),
-            ("client_id", &client_id),
-            ("client_secret", &secret),
-            ("scope", "offline"),
-        ],
-    )
-    .await?;
+    let client = Client::current(shared).ok_or(ApiError::Unauthorized)?;
+    let form = client.form(vec![
+        ("grant_type", "refresh_token"),
+        ("refresh_token", refresh_token),
+        ("scope", "offline"),
+    ]);
+    let mut fresh = request_tokens(&shared.http, &client.token_url(), &form).await?;
     // WHOOP rotates refresh tokens; keep the old one only if none came back.
     if fresh.refresh_token.is_none() {
         fresh.refresh_token = tokens.refresh_token.clone();

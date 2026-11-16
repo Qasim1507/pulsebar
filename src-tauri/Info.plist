@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>NSBluetoothAlwaysUsageDescription</key>
-  <string>PulseBar reads live heart rate from your WHOOP strap over Bluetooth.</string>
+  <string>PulseBar reads live heart rate from your heart rate strap over Bluetooth.</string>
   <key>LSUIElement</key>
   <true/>
 </dict>

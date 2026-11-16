@@ -13,8 +13,11 @@ const state: Snapshot = {
     deviceId: null,
     deviceName: null,
     maxHr: 190,
+    restingHr: null,
     demoMode: true,
     stressNotify: true,
+    // Flip to true to preview the no-keys sign-in card.
+    sharedApp: false,
     redirectUri: "http://localhost:8765/callback",
   },
   auth: { status: "none", detail: null },
@@ -50,7 +53,7 @@ setInterval(() => {
   state.history = state.history.filter(([ts]) => ts >= t - 300_000);
   const recent = state.history.slice(-30).map(([, b]) => b);
   const avg = recent.reduce((a, b) => a + b, 0) / Math.max(recent.length, 1);
-  const rhr = state.metrics.data?.rhr;
+  const rhr = state.settings.restingHr ?? state.metrics.data?.rhr ?? null;
   const tick: Tick = {
     t,
     bpm,
@@ -58,6 +61,7 @@ setInterval(() => {
     source: bpm === null ? "none" : "demo",
     ble: state.ble,
     stress: bpm !== null && rhr != null && avg > rhr + 20,
+    rhr,
   };
   emit("tick", tick);
 }, 1000);
@@ -74,6 +78,7 @@ export async function mockCall<T>(command: string, args: Record<string, unknown>
       s.clientId = String(args.clientId ?? "");
       s.hasSecret = s.hasSecret || Boolean(args.clientSecret);
       s.maxHr = Number(args.maxHr);
+      s.restingHr = args.restingHr ? Number(args.restingHr) : null;
       s.demoMode = Boolean(args.demoMode);
       state.metrics = s.demoMode
         ? { ...state.metrics, source: "demo", updatedAt: Date.now() }
@@ -87,8 +92,8 @@ export async function mockCall<T>(command: string, args: Record<string, unknown>
     case "scan_devices":
       await wait(1500);
       return [
-        { id: "mock-whoop", name: "WHOOP 4C0123456", rssi: -58 },
-        { id: "mock-strap", name: "Heart rate sensor", rssi: -74 },
+        { id: "mock-polar", name: "Polar H10 A1B2C3D4", rssi: -52 },
+        { id: "mock-whoop", name: "WHOOP 4C0123456", rssi: -61 },
       ] satisfies Device[] as T;
     case "start_oauth":
       throw "WHOOP sign-in only works inside the desktop app";
